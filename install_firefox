@@ -4,6 +4,9 @@ set -o errexit -o nounset -o pipefail
 # Download link for Firefox ESR in English
 DOWNLOAD_URL='https://download.mozilla.org/?product=firefox-esr-latest-ssl&os=linux64&lang=en-GB'
 INSTALLATION_DIRECTORY='/opt/firefox-esr'
+# Path for the symlink to "${INSTALLATION_DIRECTORY}/firefox".
+# If no symlink is wanted, comment out the variable
+SYMLINK="/opt/firefox"
 # Backup extension both for the software and the home configuration directories
 BACKUP_EXTENSION='bak'
 
@@ -94,4 +97,16 @@ chown --recursive root:root "${INSTALLATION_DIRECTORY}"
 chmod --recursive 755 "${INSTALLATION_DIRECTORY}"
 
 echo -e "\n"
-
+if [ -n "$SYMLINK" ]
+	then
+	if [ -e "$SYMLINK" ]
+		then
+		echo "The file $SYMLINK already exists. No symlink created"
+	else
+		echo "Symlink $SYMLINK does not exist. Creating it..."
+		ln -sv "${INSTALLATION_DIRECTORY}/firefox" "$SYMLINK"
+		fi
+else
+	echo "No symlink to be created because there is no symlink variable"
+	fi
+echo -e "\n"
