@@ -1,0 +1,97 @@
+#!/bin/bash -x
+set -o errexit -o nounset -o pipefail
+
+# Download link for Firefox ESR in English
+DOWNLOAD_URL='https://download.mozilla.org/?product=firefox-esr-latest-ssl&os=linux64&lang=en-GB'
+INSTALLATION_DIRECTORY='/opt/firefox-esr'
+# Backup extension both for the software and the home configuration directories
+BACKUP_EXTENSION='bak'
+
+COMMAND_NAME=$0
+
+# Function not deeply tested. Called at the beginning of the script
+backup_configdirs()
+	{
+	local BACKUPDIR
+	local CONFIGDIR
+	local HOMEDIR
+	local HOMEDIR_LIST=$(find /home -maxdepth 1 -type d |
+		grep --extended-regexp --invert-match '^/home$')
+	local IFS=$'\n'
+	for HOMEDIR in $HOMEDIR_LIST
+		do
+		CONFIGDIR="${HOMEDIR}/.mozilla/firefox"
+		BACKUPDIR="${CONFIGDIR}.${BACKUP_EXTENSION}"
+		echo "Backing up configuration directory ${CONFIGDIR}..."
+		if [ ! -d "$CONFIGDIR" ]
+			then
+			echo -n "Configuration directory in home directory $HOMEDIR not found. " >&2
+			echo "Not backing up" >&2
+			echo -e "\n"
+			continue
+			fi
+		# rsync creates the destination directory (BACKUPDIR in this case)
+		# in case it does not already exist
+		rsync --archive --delete-delay --info=progress2 "${CONFIGDIR}/" "${BACKUPDIR}/"
+		# Store the backup date
+		date >"${BACKUPDIR}/backup.date"
+		# Restrict permissions for backup directory to make sure that it does
+		# not become altered later
+		chmod --recursive 550 "$BACKUPDIR"
+		# Unlike the other files in the backup directory, root is the owner of
+		# backup.date. Allowing other users to read it
+		chmod +r "${BACKUPDIR}/backup.date"
+		echo -e "\n"
+		done	
+	}
+
+
+
+trap '{ rm -fR "$TMP_DIR"; exit 255; }' SIGTERM SIGINT SIGQUIT SIGTSTP
+trap 'rm -fR "$TMP_DIR"' EXIT
+
+if [ "$(whoami)" != 'root' ]
+	then
+	echo "This script must be executed by root" >&2
+	exit 1
+	fi
+
+# Backing up Firefox configuration files in home directories
+backup_configdirs
+
+# Create a temporary directory to download Firefox
+TMP_DIR=$(mktemp --directory --tmpdir "$(basename "${COMMAND_NAME}").XXX")
+
+echo -e "\nDownloading Bzip2 file to temporary directory ${TMP_DIR}...\n\n\n"
+cd "$TMP_DIR"
+wget "$DOWNLOAD_URL"
+#exit 100
+
+echo "Uncompressing XZ file..."
+# Mozilla changed the format from Bzip2 to XZ in 2025
+#tar -xJf *
+tar --extract --xz --file *
+
+if [ -d "${INSTALLATION_DIRECTORY}" ]
+	then
+	echo "Backing up the former installation directory..."
+	BACKUP_DIRECTORY="${INSTALLATION_DIRECTORY}.${BACKUP_EXTENSION}"
+	# It could be checked whether BACKUP_DIRECTORY exists but not as a
+	# directory as it is done with INSTALLATION_DIRECTORY, but it is not so
+	# important
+	[ -d "$BACKUP_DIRECTORY" ] && rm --force --recursive "$BACKUP_DIRECTORY"
+	mv --interactive --verbose "${INSTALLATION_DIRECTORY}" "$BACKUP_DIRECTORY"
+elif [ -e "${INSTALLATION_DIRECTORY}" ]
+	then
+	echo "Error: ${INSTALLATION_DIRECTORY} is not a directory" >&2
+	file "${INSTALLATION_DIRECTORY}" >&2
+	exit 17
+	fi
+echo "Moving Firefox directory to ${INSTALLATION_DIRECTORY}..."
+# "firefox" is the name of the directory in the compressed file provided by Mozilla
+mv --interactive 'firefox' "${INSTALLATION_DIRECTORY}"
+chown --recursive root:root "${INSTALLATION_DIRECTORY}"
+chmod --recursive 755 "${INSTALLATION_DIRECTORY}"
+
+echo -e "\n"
+
